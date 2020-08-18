@@ -19,6 +19,8 @@
 #define	IP_REMOTO		"35.156.66.227"
 #define CONNECTED		1
 #define DISCONNECTED	0
+#define TX_ENABLE		1
+#define TX_DISABLE		0
 #define BUFFER_SIZE		128
 #define BACKLOG			10
 
@@ -35,10 +37,21 @@ int fd_socket;
 
 int flag_sign;
 uint8_t flag_connected;
+uint8_t flag_transmition_file;
 
-static char topic_pub[] = "topic/pub\0";
-static char topic_sub[] = "topic/sub\0";
+//static char topic_pub[] = "topic/pub\0";
+//static char topic_sub[] = "topic/sub\0";
+//static char topic_request_file[] = "topic/request\0";
 
+static char subscribe_topics[][BUFFER_SIZE] =
+	{
+	"topic/request\0",
+	"topic/sub\0",	
+	};
+
+static char publish_topics[][BUFFER_SIZE] =
+	{"topic/pub\0",
+	};
 
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;	//mutex para resguardar el flag de estado de conexión
 
@@ -66,6 +79,15 @@ void desbloquearSign(void);					//Desbloque de señales
 static void SetFlag(uint8_t *flag, int state);	//seteo de flag de conexion/desconexion
 
 static int ReadFlagState(uint8_t *flag);					//leo el estado de flag_connected protegido con mutex	
+
+/**
+ * @brief Find a substring in a string 
+ * @param string	data in string 
+ * @param length	string param length 
+ * @param toFind	string to find
+ * @return 1 if it is found, 0 if not, -1 if toFind > string
+ */ 
+static uint8_t strContains(char* string, uint32_t length, char* toFind);
 
 /**
  * @brief Publish msj to mqtt broker 
@@ -168,7 +190,8 @@ int main(void)
 	char msg[50];
 	flag_sign = 0;
 
-	SetFlag(&flag_connected, DISCONNECTED);
+	SetFlag(&flag_connected, DISCONNECTED);					//Seteamos flag a desconectado
+	SetFlag(&flag_transmition_file, TX_DISABLE);			//seteamos flag a disable
 
 	//Inicializamos estructura para evento SIGINT
 	sa1.sa_handler = event_SIGINT;
@@ -182,14 +205,14 @@ int main(void)
 
 	printf("Conectando a broker MQTT...\r\n");
 		
-	socketConnect();	
+	socketConnect();						//conectamos a socket y posteriormente a broker
 	//Bloqueo de señales
 	bloquearSign();
 
 	//Creacion de threads 
 	if(ReadFlagState(&flag_connected) == CONNECTED){
-		retVal_t1 = pthread_create(&thread_publish, NULL, PublishHandler, NULL);
-		retVal_t2 = pthread_create(&thread_subscribe, NULL, SubscribeHandler, NULL);
+		retVal_t1 = pthread_create(&thread_publish, NULL, PublishHandler, NULL);		//thread para publicar 
+		retVal_t2 = pthread_create(&thread_subscribe, NULL, SubscribeHandler, NULL);	//thread para subscribir	
 	}
 
 	//Desbloqueo de señales	
@@ -217,7 +240,9 @@ int main(void)
 		sleep(1);		
 	}
 
+	
 	//DESCONECTARSE DEL BROKER POR RESPETO, SORETE
+
 	switch (flag_sign)
 	{
 		case SIGINT:
@@ -244,15 +269,15 @@ void socketConnect(void){
 	uint8_t buffer[BUFFER_SIZE];
 	uint32_t con_length;
 	u_int8_t error_flag = 0;
-	//Creamos socket
-	fd_socket = socket(AF_INET,SOCK_STREAM, 0);		
+	//Create socket
+	fd_socket = socket(AF_INET,SOCK_STREAM, 0);				
 
 	if(fd_socket  == -1){
 		puts("ERROR en socket\r\n");
 		error_flag++;
 	}	
 
-	server.sin_addr.s_addr = inet_addr(IP_LOCAL);
+	server.sin_addr.s_addr = inet_addr(IP_LOCAL);			//store ip 
 	server.sin_family = AF_INET;
 	server.sin_port = htons( PORT );
 
@@ -263,7 +288,7 @@ void socketConnect(void){
 		error_flag++;
 	}	
 	puts("Connected");
-	con_length = connectMqttBroker(buffer, BUFFER_SIZE);
+	con_length = connectMqttBroker(buffer, BUFFER_SIZE);	//get data frame to connect to the broker
 
 	//Send some data	
 	if( send(fd_socket , buffer , con_length , 0) < 0)
@@ -274,12 +299,12 @@ void socketConnect(void){
 	puts("Data Connect Sent\n");
 
 	if(error_flag == 0){
-		SetFlag(&flag_connected, CONNECTED);
+		SetFlag(&flag_connected, CONNECTED);			//set flat to connected
 	}
 }
 
 void* SubscribeHandler(void* argParam){
-	int i, j;
+	int i, j, k, m;
 	int length;
 	uint8_t buffer[BUFFER_SIZE];
 	uint8_t buffer_aux[BUFFER_SIZE];
@@ -287,38 +312,49 @@ void* SubscribeHandler(void* argParam){
 	 
 	// Populate the subscribe message.
 	MQTTString topicFilters[1] = { MQTTString_initializer };
-	topicFilters[0].cstring = topic_sub;//"test/rgb";
 	int requestedQoSs[1] = { 0 };
-	length = MQTTSerialize_subscribe(buffer, BUFFER_SIZE, 0, 1, 1,
+	int len = sizeof(subscribe_topics) / sizeof(subscribe_topics[0]);
+	for(k = 0; k < len; k++){
+		topicFilters[0].cstring = (char*)subscribe_topics[k];
+		memset((char*) buffer, '\0', BUFFER_SIZE);
+		length = MQTTSerialize_subscribe(buffer, BUFFER_SIZE, 0, 1, 1,
 			topicFilters, requestedQoSs);
-	if( send(fd_socket , buffer, length , 0) < 0)
-	{
-		puts("Receive subscribe failed");
-		return NULL;
-	}	
+		if( send(fd_socket , buffer, length , 0) < 0)
+		{
+			puts("Receive subscribe failed");
+			return NULL;
+		}	
+	}
+
 	memset((char*) buffer, '\0', BUFFER_SIZE);		
 	while(ReadFlagState(&flag_connected) == CONNECTED){
 		memset((char*) buffer, '\0', BUFFER_SIZE);		
 		memset((char*) buffer_aux, '\0', BUFFER_SIZE);		
 		length = recv(fd_socket, buffer, BUFFER_SIZE, 0);
 		
+		
+		//chequeamos que este el pedido de envio de into
+		if(strContains((char*)buffer, length, subscribe_topics[0]) == 1){
+			SetFlag(&flag_transmition_file, TX_ENABLE);
+		}
+
     	if(length > 0)
     	{
 			flag_start = 0;
 			j = 0;
 			for(i = 0; i < length; i++){
        			printf("%c",buffer[i]);
-				if(buffer[i] == SCH){
-					flag_start = 1;
+				if(buffer[i] == SCH){			//find the char '$'
+					flag_start = 1;				//set flag if it found
 				}
-				if(flag_start == 1){  
+				if(flag_start == 1){  					//if flag is set store the content to save it in file
 					buffer_aux[j++] = buffer[i];
 				}   
 			}
 			if(flag_start == 1){
 				buffer_aux[j++] = '\r';
 				buffer_aux[j++] = '\n';	
-				CreateFile(buffer_aux, (j - 1));
+				CreateFile(buffer_aux, (j - 1));		//save line in file
 			}		
 			printf("%c%c", '\r', '\n');
     	}
@@ -333,6 +369,34 @@ void* SubscribeHandler(void* argParam){
 	}
 	return NULL;		
 }
+
+static uint8_t strContains(char* string, uint32_t length, char* toFind)
+{
+    uint8_t slen = length;//strlen(string);
+    uint8_t tFlen = strlen(toFind);
+    uint8_t found = 0;
+
+    if( slen >= tFlen )
+    {
+        for(uint8_t s=0, t=0; s<slen; s++)
+        {
+            do{
+
+                if( string[s] == toFind[t] )
+                {
+                    if( ++found == tFlen ) return 1;
+                    s++;
+                    t++;
+                }
+                else { s -= found; found=0; t=0; }
+
+              }while(found);
+        }
+        return 0;
+    }
+    else return -1;
+}
+
 
 
 void CreateFile(uint8_t * buffer, uint32_t length){
@@ -355,7 +419,7 @@ void* PublishHandler(void* argParam){
 	uint32_t pub_length; 
 	dataMqtt_t data_pub;
 	int contador = 0;
-	strncpy((char*)data_pub.topic, topic_pub, strlen((char*)topic_pub));
+	strncpy((char*)data_pub.topic, publish_topics[0], strlen((char*)publish_topics[0]));
 	while(ReadFlagState(&flag_connected) == CONNECTED){
 		memset((char*) data_pub.data, '\0', BUFFER_SIZE);
 		sprintf((char*) data_pub.data, "contador:%d", contador);
@@ -410,30 +474,3 @@ uint32_t connectMqttBroker(uint8_t *buff, uint32_t length){
 }
 
 
-void* ciaaHandler(void* argParam){
-	int32_t data_receive_length = 0;
-
-	
-	while (1)
-	{
-		//Leemos datos del puerto serie
-		//data_receive_length = serial_receive(buffer_rx_ciaa, BUFFER_SIZE);
-	
-		if(data_receive_length > 10){		//Aca puse > 10 porque si ponia 0 estaba constantemente entrando al if
-			data_receive_length = 0;
-			
-			//envio data a la web
-			/*if(ReadFlagState(&flag_connected) == CONNECTED){		//agregar el chequeo del disconnect										//chequeo que el fd exista
-				if (send (fd_accept, buffer_tx_web, strlen(buffer_tx_web), 0) < 0)
-				//if (write (fd_accept, buffer_tx_web, strlen(buffer_tx_web)) == -1)		//envio data a la web
-				{
-					printf("Error en envio");
-					close(fd_accept);
-					return NULL;
-				}
-			}*/						
-		}
-		usleep(10000);
-	}
-	return NULL;
-}
