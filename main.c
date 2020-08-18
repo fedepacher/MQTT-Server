@@ -11,6 +11,7 @@
 #include "pthread.h"
 #include <signal.h>
 #include "MQTTPacket.h"
+#include "defs.h"
 
 
 #define	PORT			1883
@@ -41,7 +42,19 @@ static char topic_sub[] = "topic/sub\0";
 
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;	//mutex para resguardar el flag de estado de conexión
 
+
+/**
+ * @brief Thread Publish Handler 
+ * @param argParam		
+ * @return void
+ */ 
 void* PublishHandler(void* argParam);		//handler del Publish 
+
+/**
+ * @brief Thread Subscribe Handler 
+ * @param argParam		
+ * @return void
+ */ 
 void* SubscribeHandler(void* argParam);		//handler del Subscribe
 
 static void event_Sign(char * msg, uint32_t length);			//Handler general de SIGTERM Y SIGINT
@@ -54,11 +67,38 @@ static void SetFlag(uint8_t *flag, int state);	//seteo de flag de conexion/desco
 
 static int ReadFlagState(uint8_t *flag);					//leo el estado de flag_connected protegido con mutex	
 
+/**
+ * @brief Publish msj to mqtt broker 
+ * @param buff		store connect data frame 
+ * @param length	buffer length
+ * @return data frame length
+ */ 
 uint32_t connectMqttBroker(uint8_t *buff, uint32_t length);		//conexion con broker mqtt	
 
+/**
+ * @brief Publish msj to mqtt broker 
+ * @param buff_in	data to publish
+ * @param length_in	data length to publish
+ * @param buff_out	data frame to publish
+ * @param length	data frame length 
+ * @return length to publish
+ */ 
 uint32_t Publish(dataMqtt_t *buff_in, uint32_t length_in, uint8_t *buff_out, uint32_t length);
 
+/**
+ * @brief Create socket and connet to mqtt server
+ * @return void
+ */ 
 void socketConnect(void);
+
+/**
+ * @brief Create File
+ * @param buffer	buffer to store in file
+ * @param length	length of buffer
+ * @return void
+ */ 
+void CreateFile(uint8_t * buffer, uint32_t length); 		//creacion de archivo
+
 
 static void event_Sign(char * msg, uint32_t length){
 	
@@ -233,14 +273,17 @@ void socketConnect(void){
 	}
 	puts("Data Connect Sent\n");
 
-	if(error_flag == 0)
+	if(error_flag == 0){
 		SetFlag(&flag_connected, CONNECTED);
+	}
 }
 
 void* SubscribeHandler(void* argParam){
-	int i;
+	int i, j;
 	int length;
-	unsigned char buffer[BUFFER_SIZE];
+	uint8_t buffer[BUFFER_SIZE];
+	uint8_t buffer_aux[BUFFER_SIZE];
+	uint8_t flag_start = 0;
 	 
 	// Populate the subscribe message.
 	MQTTString topicFilters[1] = { MQTTString_initializer };
@@ -255,14 +298,28 @@ void* SubscribeHandler(void* argParam){
 	}	
 	memset((char*) buffer, '\0', BUFFER_SIZE);		
 	while(ReadFlagState(&flag_connected) == CONNECTED){
-
+		memset((char*) buffer, '\0', BUFFER_SIZE);		
+		memset((char*) buffer_aux, '\0', BUFFER_SIZE);		
 		length = recv(fd_socket, buffer, BUFFER_SIZE, 0);
 		
     	if(length > 0)
     	{
+			flag_start = 0;
+			j = 0;
 			for(i = 0; i < length; i++){
        			printf("%c",buffer[i]);
+				if(buffer[i] == SCH){
+					flag_start = 1;
+				}
+				if(flag_start == 1){  
+					buffer_aux[j++] = buffer[i];
+				}   
 			}
+			if(flag_start == 1){
+				buffer_aux[j++] = '\r';
+				buffer_aux[j++] = '\n';	
+				CreateFile(buffer_aux, (j - 1));
+			}		
 			printf("%c%c", '\r', '\n');
     	}
 		else
@@ -277,6 +334,21 @@ void* SubscribeHandler(void* argParam){
 	return NULL;		
 }
 
+
+void CreateFile(uint8_t * buffer, uint32_t length){
+	FILE *fp1;
+    char output_file_name[] = "/home/fedepacher/CESE/MQTT Server/MQTT-Server/incoming_file_from_pc.xml";
+	
+	fp1 = fopen(output_file_name, "a");     //create output file
+    if(fp1 != NULL)
+    {           
+        fputs((char*)buffer, fp1);             //append data to the file   
+    }
+    else{
+        printf("Error creando archivo\r\n");
+    }
+    fclose(fp1);                            //close file
+}
 
 void* PublishHandler(void* argParam){
 	uint8_t buffer[BUFFER_SIZE];
