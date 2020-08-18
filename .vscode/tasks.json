@@ -1,0 +1,35 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "type": "shell",
+            "label": "C/C++: gcc build active file",
+            "command": "/usr/bin/gcc",
+            "args": [
+                "-g",
+                "-Wall",
+                "-pthread",
+                "${workspaceFolder}/main.c",
+                "${workspaceFolder}/MQTTConnectClient.c",
+                "${workspaceFolder}/MQTTConnectServer.c",
+                "${workspaceFolder}/MQTTDeserializePublish.c",
+                "${workspaceFolder}/MQTTFormat.c",
+                "${workspaceFolder}/MQTTPacket.c",
+                "${workspaceFolder}/MQTTSerializePublish.c",
+                "${workspaceFolder}/MQTTSubscribeClient.c",
+                "${workspaceFolder}/MQTTSubscribeServer.c",
+                "${workspaceFolder}/MQTTUnsubscribeClient.c",
+                "${workspaceFolder}/MQTTUnsubscribeServer.c",
+                "-o",
+                "${fileDirname}/${fileBasenameNoExtension}"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "problemMatcher": [
+                "$gcc"
+            ],
+            "group": "build"
+        }
+    ]
+}
