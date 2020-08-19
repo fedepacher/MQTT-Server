@@ -486,7 +486,7 @@ void *PublishHandler(void *argParam)
 
 		if (ReadFlagState(&flag_transmition_file) == TX_ENABLE)
 		{
-			printf("Transmitiendo datos\r\n");
+			printf("Procesando pedido de transmision\r\n");
 			file = fopen(IO_file_name, "r");		 				//abro archivo a transmitir
 			if (file != NULL)
 			{
