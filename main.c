@@ -23,7 +23,7 @@
 #define BUFFER_SIZE 128
 #define BACKLOG 10
 
-static char output_file_name[] = "/home/fedepacher/CESE/MQTT Server/MQTT-Server/IO_file.xml";
+static char IO_file_name[] = "/home/fedepacher/CESE/MQTT Server/MQTT-Server/IO_file.xml";
 
 typedef struct
 {
@@ -357,7 +357,7 @@ void *SubscribeHandler(void *argParam)
 			}
 			else
 			{
-				if (ReadFlagState(&flag_transmition_file) == TX_ENABLE && strContains((char *)buffer, length, subscribe_topics[1]) == 1)
+				if (strContains((char *)buffer, length, subscribe_topics[1]) == 1)
 				{
 					flag_start = 0;
 					j = 0;
@@ -387,20 +387,21 @@ void *SubscribeHandler(void *argParam)
 				}
 			}
 		}
-		else{
-			switch(length)
-				{
-					case -1:
-						perror("Error leyendo mensaje en socket");
-					break;
-					case 0:
-						printf("Recibo de EOF");
-					break;
-					default:
-						printf("Error recibido numero %d", length);
-					break;
-				}								
+		else
+		{
+			switch (length)
+			{
+			case -1:
+				perror("Error leyendo mensaje en socket");
 				break;
+			case 0:
+				printf("Recibo de EOF");
+				break;
+			default:
+				printf("Error recibido numero %d", length);
+				break;
+			}
+			break;
 		}
 		//usleep(1000)
 	}
@@ -446,7 +447,7 @@ void CreateFile(uint8_t *buffer, uint32_t length)
 {
 	FILE *fp1;
 
-	fp1 = fopen(output_file_name, "a"); //create output file
+	fp1 = fopen(IO_file_name, "a"); //create output file
 	if (fp1 != NULL)
 	{
 		fputs((char *)buffer, fp1); //append data to the file
@@ -460,26 +461,43 @@ void CreateFile(uint8_t *buffer, uint32_t length)
 
 void *PublishHandler(void *argParam)
 {
+	FILE *file = NULL;
 	uint8_t buffer[BUFFER_SIZE];
 	uint32_t pub_length;
 	dataMqtt_t data_pub;
-	int contador = 0;
+	
 	strncpy((char *)data_pub.topic, publish_topics[0], strlen((char *)publish_topics[0]));
 	while (ReadFlagState(&flag_connected) == CONNECTED)
 	{
-		memset((char *)data_pub.data, '\0', BUFFER_SIZE);
-		sprintf((char *)data_pub.data, "contador:%d", contador);
-		contador++;
+		//memset((char *)data_pub.data, '\0', BUFFER_SIZE);
+		//sprintf((char *)data_pub.data, "contador:%d", contador);
+		//contador++;
 
-		pub_length = Publish(&data_pub, strlen((char *)data_pub.data), buffer, BUFFER_SIZE);
-
-		//Publish some data
-		if (send(fd_socket, buffer, pub_length, 0) < 0)
+		if (ReadFlagState(&flag_transmition_file) == TX_ENABLE)
 		{
-			puts("Send publish failed");
-			return NULL;
+			file = fopen(IO_file_name, "r");						//abro archivo a transmitir
+			if (file != NULL)
+			{
+				while (fgets((char *)buffer, BUFFER_SIZE, file))	//mientras tenga info el archivo me quedo aca adentro
+				{
+					memset((char *)data_pub.data, '\0', BUFFER_SIZE);
+					sprintf((char *)data_pub.data, (char *)buffer);
+					pub_length = Publish(&data_pub, strlen((char *)data_pub.data), buffer, BUFFER_SIZE);
+					if (send(fd_socket, buffer, pub_length, 0) < 0)
+					{
+						puts("Error en publish");
+						return NULL;
+					}
+					usleep(1000);
+				}
+			}
+			else
+			{
+				printf("Archivo no existente\r\n");
+			}
+			SetFlag(&flag_transmition_file, TX_DISABLE);
 		}
-		sleep(1);
+		usleep(1000);
 	}
 	SetFlag(&flag_connected, DISCONNECTED);
 	return NULL;
