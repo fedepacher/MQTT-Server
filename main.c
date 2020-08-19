@@ -22,13 +22,14 @@
 #define TX_DISABLE 0
 #define BUFFER_SIZE 128
 #define BACKLOG 10
+#define QOS		0
 
 static char IO_file_name[] = "IO_file.xml";
 
 typedef struct
 {
-	char topic[20];
-	unsigned char data[BUFFER_SIZE];
+	uint8_t topic[20];
+	uint8_t data[BUFFER_SIZE];
 	uint32_t length;
 } dataMqtt_t;
 
@@ -327,7 +328,7 @@ void *SubscribeHandler(void *argParam)
 
 	// Populate the subscribe message.
 	MQTTString topicFilters[1] = {MQTTString_initializer};
-	int requestedQoSs[1] = {0};
+	int requestedQoSs[1] = {QOS};
 	int len = sizeof(subscribe_topics) / sizeof(subscribe_topics[0]);
 	for (k = 0; k < len; k++)
 	{
@@ -360,6 +361,9 @@ void *SubscribeHandler(void *argParam)
 			{
 				if (strContains((char *)buffer, length, subscribe_topics[1]) == 1)
 				{
+					if(strContains((char *)buffer, length, SOTX) == 1){
+						remove(IO_file_name);
+					}
 					flag_start = 0;
 					j = 0;
 					for (i = 0; i < length; i++)
@@ -384,8 +388,13 @@ void *SubscribeHandler(void *argParam)
 				}
 				else
 				{
-					cont_frame_descartados++;	
-					printf("%d %s", cont_frame_descartados, "frame descartado\r\n");				
+					if (ReadFlagState(&flag_transmition_file) == TX_ENABLE){
+						printf("Transmitiendo datos, Espere por favor\r\n");
+					}
+					else{
+						cont_frame_descartados++;	
+						printf("%d %s", cont_frame_descartados, "frame descartado\r\n");
+					}				
 				}
 			}
 		}
@@ -477,11 +486,13 @@ void *PublishHandler(void *argParam)
 
 		if (ReadFlagState(&flag_transmition_file) == TX_ENABLE)
 		{
-			file = fopen(IO_file_name, "r");						//abro archivo a transmitir
+			printf("Transmitiendo datos\r\n");
+			file = fopen(IO_file_name, "r");		 				//abro archivo a transmitir
 			if (file != NULL)
 			{
 				while (fgets((char *)buffer, BUFFER_SIZE, file))	//mientras tenga info el archivo me quedo aca adentro
 				{
+					
 					memset((char *)data_pub.data, '\0', BUFFER_SIZE);
 					sprintf((char *)data_pub.data, (char *)buffer);
 					pub_length = Publish(&data_pub, strlen((char *)data_pub.data), buffer, BUFFER_SIZE);
@@ -492,6 +503,7 @@ void *PublishHandler(void *argParam)
 					}
 					usleep(500000);
 				}
+				printf("Fin de transmitiendo datos\r\n");
 			}
 			else
 			{
@@ -513,7 +525,7 @@ uint32_t Publish(dataMqtt_t *buff_in, uint32_t length_in, uint8_t *buff_out, uin
 	// Populate the publish message.
 	MQTTString topicString = MQTTString_initializer;
 	topicString.cstring = (char *)buff_in->topic;
-	int qos = 0;
+	int qos = QOS;
 	memset((char *)buff_out, '\0', length);
 	//strcat((char*)data->data, "\r\n");// OJO QUE PUEDE QUE ALGUNOS ENVIOS NECESITEN ESTE \R\N
 	length_out = MQTTSerialize_publish(buff_out, length, 0, qos, 0, 0,
@@ -531,7 +543,7 @@ uint32_t connectMqttBroker(uint8_t *buff, uint32_t length)
 	connectData.clientID.cstring = "fede";
 	connectData.keepAliveInterval = 120;
 	//connectData.willFlag = 1;
-	//connectData.will.qos = 2;
+	connectData.will.qos = QOS;
 	memset((char *)buff, '\0', length);
 	length_data_rec = MQTTSerialize_connect(buff, length, &connectData);
 
