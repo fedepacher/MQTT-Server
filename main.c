@@ -316,7 +316,6 @@ int socketConnect(void)
 	return 1;
 }
 
-
 void *SubscribeHandler(void *argParam)
 {
 	int i, j, k;
@@ -347,43 +346,62 @@ void *SubscribeHandler(void *argParam)
 	{
 		memset((char *)buffer, '\0', BUFFER_SIZE);
 		memset((char *)buffer_aux, '\0', BUFFER_SIZE);
-		length = recv(fd_socket, buffer, BUFFER_SIZE, 0);
-
-		//chequeamos que este el pedido de envio de into
-		if (strContains((char *)buffer, length, subscribe_topics[0]) == 1)
+		if ((length = recv(fd_socket, buffer, BUFFER_SIZE, 0)) > 0)
 		{
-			SetFlag(&flag_transmition_file, TX_ENABLE);
-		}
 
-		if (length > 0)
-		{
-			flag_start = 0;
-			j = 0;
-			for (i = 0; i < length; i++)
+			//chequeamos que este el pedido de envio de into
+			if (ReadFlagState(&flag_transmition_file) == TX_DISABLE && strContains((char *)buffer, length, subscribe_topics[0]) == 1)
 			{
-				printf("%c", buffer[i]);
-				if (buffer[i] == SCH)
-				{					//find the char '$'
-					flag_start = 1; //set flag if it found
+				SetFlag(&flag_transmition_file, TX_ENABLE);
+				printf("Pedido de Transmision\r\n");
+			}
+			else
+			{
+				if (ReadFlagState(&flag_transmition_file) == TX_ENABLE && strContains((char *)buffer, length, subscribe_topics[1]) == 1)
+				{
+					flag_start = 0;
+					j = 0;
+					for (i = 0; i < length; i++)
+					{
+						printf("%c", buffer[i]);
+						if (buffer[i] == SCH)
+						{					//find the char '$'
+							flag_start = 1; //set flag if it found
+						}
+						if (flag_start == 1)
+						{ //if flag is set store the content to save it in file
+							buffer_aux[j++] = buffer[i];
+						}
+					}
+					if (flag_start == 1)
+					{
+						buffer_aux[j++] = '\r';
+						buffer_aux[j++] = '\n';
+						CreateFile(buffer_aux, (j - 1)); //save line in file
+					}
+					printf("%c%c", '\r', '\n');
 				}
-				if (flag_start == 1)
-				{ //if flag is set store the content to save it in file
-					buffer_aux[j++] = buffer[i];
+				else
+				{
+					printf("Frame descartado\r\n");
 				}
 			}
-			if (flag_start == 1)
-			{
-				buffer_aux[j++] = '\r';
-				buffer_aux[j++] = '\n';
-				CreateFile(buffer_aux, (j - 1)); //save line in file
-			}
-			printf("%c%c", '\r', '\n');
 		}
-		else
-		{
-			printf("Error en Subscribe\r\n");
+		else{
+			switch(length)
+				{
+					case -1:
+						perror("Error leyendo mensaje en socket");
+					break;
+					case 0:
+						printf("Recibo de EOF");
+					break;
+					default:
+						printf("Error recibido numero %d", length);
+					break;
+				}								
+				break;
 		}
-
 		//usleep(1000)
 	}
 	return NULL;
