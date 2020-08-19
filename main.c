@@ -23,7 +23,7 @@
 #define BUFFER_SIZE 128
 #define BACKLOG 10
 
-static char IO_file_name[] = "/home/fedepacher/CESE/MQTT Server/MQTT-Server/IO_file.xml";
+static char IO_file_name[] = "IO_file.xml";
 
 typedef struct
 {
@@ -167,7 +167,7 @@ void desbloquearSign(void)
 static void SetFlag(uint8_t *flag, int state)
 {
 	pthread_mutex_lock(&mutex);
-	flag_connected = state;
+	(*flag) = state;
 	pthread_mutex_unlock(&mutex);
 }
 
@@ -323,6 +323,7 @@ void *SubscribeHandler(void *argParam)
 	uint8_t buffer[BUFFER_SIZE];
 	uint8_t buffer_aux[BUFFER_SIZE];
 	uint8_t flag_start = 0;
+	int cont_frame_descartados = 0;
 
 	// Populate the subscribe message.
 	MQTTString topicFilters[1] = {MQTTString_initializer};
@@ -363,7 +364,7 @@ void *SubscribeHandler(void *argParam)
 					j = 0;
 					for (i = 0; i < length; i++)
 					{
-						printf("%c", buffer[i]);
+						//printf("%c", buffer[i]);
 						if (buffer[i] == SCH)
 						{					//find the char '$'
 							flag_start = 1; //set flag if it found
@@ -379,11 +380,12 @@ void *SubscribeHandler(void *argParam)
 						buffer_aux[j++] = '\n';
 						CreateFile(buffer_aux, (j - 1)); //save line in file
 					}
-					printf("%c%c", '\r', '\n');
+					//printf("%c%c", '\r', '\n');
 				}
 				else
 				{
-					printf("Frame descartado\r\n");
+					cont_frame_descartados++;	
+					printf("%d %s", cont_frame_descartados, "frame descartado\r\n");				
 				}
 			}
 		}
@@ -488,7 +490,7 @@ void *PublishHandler(void *argParam)
 						puts("Error en publish");
 						return NULL;
 					}
-					usleep(1000);
+					usleep(500000);
 				}
 			}
 			else
