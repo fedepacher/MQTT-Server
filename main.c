@@ -20,7 +20,8 @@
 #define DISCONNECTED 0
 #define TX_ENABLE 1
 #define TX_DISABLE 0
-#define BUFFER_SIZE 128
+#define BUFFER_SIZE 256
+#define BUFFER_LONG_SIZE 256 * 100 
 #define BACKLOG 10
 #define QOS		0
 
@@ -119,9 +120,11 @@ int socketConnect(void);
  * @brief Create File
  * @param buffer	buffer to store in file
  * @param length	length of buffer
- * @return void
+ * @return 1 is it is ok, otherwise -1
  */
-void CreateFile(uint8_t *buffer, uint32_t length); //creacion de archivo
+int CreateFile(uint8_t *buffer, uint32_t length); //creacion de archivo
+
+
 
 static void event_Sign(char *msg, uint32_t length)
 {
@@ -322,9 +325,12 @@ void *SubscribeHandler(void *argParam)
 	int i, j, k;
 	int length;
 	uint8_t buffer[BUFFER_SIZE];
-	uint8_t buffer_aux[BUFFER_SIZE];
+	uint8_t buffer_aux[BUFFER_LONG_SIZE];
 	uint8_t flag_start = 0;
-	int cont_frame_descartados = 0;
+	uint8_t flag_start1 = 0;
+	uint8_t flag_end = 0;
+	//int cont_frame_descartados = 0;
+	//FILE *fp;
 
 	// Populate the subscribe message.
 	MQTTString topicFilters[1] = {MQTTString_initializer};
@@ -344,10 +350,11 @@ void *SubscribeHandler(void *argParam)
 	}
 
 	memset((char *)buffer, '\0', BUFFER_SIZE);
+	memset((char *)buffer_aux, '\0', BUFFER_LONG_SIZE);
 	while (ReadFlagState(&flag_connected) == CONNECTED)
 	{
-		memset((char *)buffer, '\0', BUFFER_SIZE);
-		memset((char *)buffer_aux, '\0', BUFFER_SIZE);
+		//memset((char *)buffer, '\0', BUFFER_SIZE);
+		//memset((char *)buffer_aux, '\0', BUFFER_SIZE);
 		if ((length = recv(fd_socket, buffer, BUFFER_SIZE, 0)) > 0)
 		{
 
@@ -359,16 +366,24 @@ void *SubscribeHandler(void *argParam)
 			}
 			else
 			{
-				if (strContains((char *)buffer, length, subscribe_topics[1]) == 1)
-				{
+				//if (strContains((char *)buffer, length, subscribe_topics[1]) == 1)
+				//{
 					if(strContains((char *)buffer, length, SOTX) == 1){
 						remove(IO_file_name);
+						flag_end = 0;
+						flag_start1 = 1;
+						j = 0;
+						
 					}
+					if(strContains((char *)buffer, length, EOTX) == 1){
+						flag_end = 1;
+					}
+
 					flag_start = 0;
-					j = 0;
+					//j = 0;
 					for (i = 0; i < length; i++)
 					{
-						//printf("%c", buffer[i]);
+						
 						if (buffer[i] == SCH)
 						{					//find the char '$'
 							flag_start = 1; //set flag if it found
@@ -382,10 +397,11 @@ void *SubscribeHandler(void *argParam)
 					{
 						buffer_aux[j++] = '\r';
 						buffer_aux[j++] = '\n';
-						CreateFile(buffer_aux, (j - 1)); //save line in file
+						//CreateFile(buffer_aux, (j - 1)); //save line in file
+						//AddInfoFile(fp, buffer_aux);
 					}
 					//printf("%c%c", '\r', '\n');
-				}
+				/*}
 				else
 				{
 					if (ReadFlagState(&flag_transmition_file) == TX_ENABLE){
@@ -395,7 +411,13 @@ void *SubscribeHandler(void *argParam)
 						cont_frame_descartados++;	
 						printf("%d %s", cont_frame_descartados, "frame descartado\r\n");
 					}				
-				}
+				}*/
+			}
+			if(flag_start1 == 1 && flag_end == 1){
+				flag_end = 0;
+				flag_start1 = 0;
+				CreateFile(buffer_aux, (j - 1));
+				memset((char *)buffer_aux, '\0', BUFFER_LONG_SIZE);
 			}
 		}
 		else
@@ -454,10 +476,13 @@ static uint8_t strContains(char *string, uint32_t length, char *toFind)
 		return -1;
 }
 
-void CreateFile(uint8_t *buffer, uint32_t length)
+
+
+
+int CreateFile(uint8_t *buffer, uint32_t length)
 {
 	FILE *fp1;
-
+	int result = 1;
 	fp1 = fopen(IO_file_name, "a"); //create output file
 	if (fp1 != NULL)
 	{
@@ -466,8 +491,10 @@ void CreateFile(uint8_t *buffer, uint32_t length)
 	else
 	{
 		printf("Error creando archivo\r\n");
+		result = -1;
 	}
 	fclose(fp1); //close file
+	return result;
 }
 
 void *PublishHandler(void *argParam)
